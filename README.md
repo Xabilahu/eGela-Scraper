@@ -43,7 +43,7 @@ python3 scrap.py -o /path/to/output/folder -f /path/to/filetypes.txt
 
 ## Author
 
-Xabier Lahuerta Vázquez. Contact me [here](xabier.lahuerta@gmail.com).
+Xabier Lahuerta Vázquez. Contact me [here](mailto:xabier.lahuerta@gmail.com).
 
 ## License
 
