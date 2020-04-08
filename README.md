@@ -4,10 +4,10 @@ A web scraper for the Moodle based alumni web [eGela](https://egela.ehu.eus), ho
 
 ## Usage
 
-Launch the scraper with the following command:
+Launch the scraper with the following command. In the first launch it will setup your environment downloading the dependencies needed.
 
 ```
-python3 scrap.py -o /path/to/output/folder
+./scrap.sh -o /path/to/output/folder
 ```
 
 After that, you will be prompted your eGela credentials to gain access to the website. Those credentials won't be stored or even shared, they are discarded after the login success.
@@ -35,10 +35,10 @@ outputFolder
 
 ## File types
 
-The file types that the scraper will look for are stored in [fileTypes.txt](src/fileTypes.txt) file. If any file type of your need doesn't appear in that file, you can launch the scraper with a custom list of file types the following way:
+The file types that the scraper will look for are stored in [fileTypes.txt](res/fileTypes.txt) file. If any file type of your need doesn't appear in that file, you can launch the scraper with a custom list of file types the following way:
 
 ```
-python3 scrap.py -o /path/to/output/folder -f /path/to/filetypes.txt
+./scrap.sh -o /path/to/output/folder -f /path/to/filetypes.txt
 ```
 
 ## Author
