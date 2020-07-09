@@ -8,10 +8,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from typing import Set
-import argparse, getpass, os, time, requests, re, string
+import argparse, getpass, os, time, requests, re, string, math
 
 BASE_URL = 'https://egela.ehu.eus'
 OUTPUT_PATH = ''
+totalSize = 0
 driver = None
 session = None
 filenameRegex = re.compile('filename="(.+)"')
@@ -21,6 +22,15 @@ def parseArguments():
     parser = argparse.ArgumentParser(description="eGela Web Scraper")
     parser.add_argument('--output', '-o', metavar='output', required=True, type=str, help='Path to folder where scrapped documents will be downloaded.')
     return parser.parse_args()
+
+def convertSize(sizeBytes):
+   if sizeBytes == 0:
+       return "0 B"
+   sizeName = ("B", "KiB", "MiB", "GiB", "TiB")
+   i = int(math.floor(math.log(sizeBytes, 1024)))
+   p = math.pow(1024, i)
+   s = round(sizeBytes / p, 2)
+   return f'{s} {sizeName[i]}'
 
 def readFileTypes(fileName: str) -> Set:
     fileTypes = set()
@@ -55,6 +65,8 @@ def checkCredentials():
         del userName, passwd
 
 def scrapCourse(course: webdriver.Firefox._web_element_cls):
+    global totalSize
+    courseSize = 0
     folderName = course.text.replace('/', '-')
     print('[INFO]: Scrapping {}'.format(folderName))
     createDir(f'{OUTPUT_PATH}/{folderName}')
@@ -68,8 +80,9 @@ def scrapCourse(course: webdriver.Firefox._web_element_cls):
         print('[INFO]: Scrapping mode = Unique-Portal')
         sections = driver.find_element_by_class_name('topics').find_elements_by_class_name('main')
         for section in sections:
+            sectionSize = 0
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'sectionname')))
-            print('[INFO]: Scrapping section {}'.format(section.text.split('\n')[0]))
+            secName = section.text.split('\n')[0]
             sectionLink = section.find_element_by_class_name('content').find_element_by_tag_name('a')
             folderSection = f'{OUTPUT_PATH}/{folderName}/{removePunctuation(sectionLink.text)}'
             createDir(folderSection)
@@ -77,9 +90,11 @@ def scrapCourse(course: webdriver.Firefox._web_element_cls):
             try:
                 imgText = section.find_element_by_class_name('img-text')
                 for activity in imgText.find_elements_by_tag_name('li'):
-                    scrapLi(activity, folderSection, 2)
+                    sectionSize += scrapLi(activity, folderSection, 2)
             except NoSuchElementException:
                 pass
+            courseSize += sectionSize
+            print(f'[INFO]: Scrapped {convertSize(sectionSize)} from section {secName}')
     else:
         print('[INFO]: Scrapping mode = Multiple-Portals')
         for section in clickableSections:
@@ -92,9 +107,14 @@ def scrapCourse(course: webdriver.Firefox._web_element_cls):
             scrapSingleSection(folderName)
             driver.close()
             driver.switch_to.window(currentWindow)
+
     driver.close() #Close current tab
+    totalSize += courseSize
+    print(f'[INFO]: Scrapped a total of {convertSize(courseSize)} from course {folderName}')
 
 def scrapSingleSection(courseName: str):
+    global totalSize
+    currentSize = 0
     scrappableSection = driver.find_element_by_class_name('single-section')
     secName = removePunctuation(scrappableSection.find_element_by_class_name('sectionname').text)
     currentDirPath = f'{OUTPUT_PATH}/{courseName}/{secName}'
@@ -103,25 +123,35 @@ def scrapSingleSection(courseName: str):
     try:
         mainSection = scrappableSection.find_element_by_class_name('img-text')
         for elem in mainSection.find_elements_by_tag_name('li'):
-            scrapLi(elem, currentDirPath)
+            currentSize += scrapLi(elem, currentDirPath)
     except NoSuchElementException:
         pass
 
-def scrapLi(elem, currentDirPath, index=3):
-    if 'resource' in elem.get_attribute('class'):
-        scrapResource(elem, currentDirPath, index)
-    elif 'assign' in elem.get_attribute('class'):
-        scrapAssign(elem, currentDirPath, index)
-    elif 'folder' in elem.get_attribute('class'):
-        scrapFolder(elem, currentDirPath, index)
+    totalSize += currentSize
+    print(f'[INFO]: Scrapped {convertSize(currentSize)} from section {secName}')
 
-def scrapResource(resourceLi, basePath, index=3):
+def scrapLi(elem, currentDirPath, index=3) -> int:
+    currentSize = 0
+
+    if 'resource' in elem.get_attribute('class'):
+        currentSize = scrapResource(elem, currentDirPath, index)
+    elif 'assign' in elem.get_attribute('class'):
+        currentSize = scrapAssign(elem, currentDirPath, index)
+    elif 'folder' in elem.get_attribute('class'):
+        currentSize = scrapFolder(elem, currentDirPath, index)
+    
+    return currentSize
+
+def scrapResource(resourceLi, basePath, index=3) -> int:
+    currentSize = 0
+
     resourceLink = resourceLi.find_element_by_tag_name('a')
     response = session.get(resourceLink.get_attribute('href'))
     contentDisposition = response.headers.get('content-disposition')
     if contentDisposition:
         filename = checkFilename(filenameRegex.search(contentDisposition).group(1))
         if filename is not None:
+            currentSize = len(response.content)
             writeFile(f'{basePath}/{filename}', response.content)
     else:
         driver.execute_script('arguments[0].removeAttribute("onclick");', resourceLink)
@@ -137,11 +167,16 @@ def scrapResource(resourceLi, basePath, index=3):
         response = session.get(downloadableLink)
         filename = checkFilename(filenameRegex.search(response.headers.get("content-disposition")).group(1))
         if filename is not None:
+            currentSize = len(response.content)
             writeFile(f'{basePath}/{filename}', response.content)
         driver.close()
         driver.switch_to.window(currentWindow)
 
-def scrapFolder(folderLi, basePath, index=3):
+    return currentSize
+
+def scrapFolder(folderLi, basePath, index=3) -> int:
+    currentSize = 0
+
     folderLink = folderLi.find_element_by_class_name('activityinstance').find_element_by_tag_name('a')
     driver.execute_script('arguments[0].removeAttribute("onclick");', folderLink)
     currentWindow = driver.current_window_handle
@@ -156,12 +191,16 @@ def scrapFolder(folderLi, basePath, index=3):
     response = session.post(singleButton.find_element_by_tag_name('form').get_attribute('action'), data = params)
     filename = checkFilename(filenameRegex.search(response.headers.get("content-disposition")).group(1))
     if filename is not None:
+        currentSize = len(response.content)
         writeFile(f'{basePath}/{filename}', response.content)
     driver.close()
     driver.switch_to.window(currentWindow)
 
-def scrapAssign(assignLi, basePath, index=3):
+    return currentSize
+
+def scrapAssign(assignLi, basePath, index=3) -> int:
     try:
+        currentSize = 0
         assignLink = assignLi.find_element_by_class_name('activityinstance').find_element_by_tag_name('a')
         driver.execute_script('arguments[0].removeAttribute("onclick");', assignLink)
         currentWindow = driver.current_window_handle
@@ -176,6 +215,7 @@ def scrapAssign(assignLi, basePath, index=3):
                     response = session.get(currentHref)
                     filename = checkFilename(filenameRegex.search(response.headers.get("content-disposition")).group(1))
                     if filename is not None:
+                        currentSize = len(response.content)
                         writeFile(f'{basePath}/{filename}', response.content)
         driver.close()
         driver.switch_to.window(currentWindow)
@@ -183,6 +223,8 @@ def scrapAssign(assignLi, basePath, index=3):
         pass
     except StaleElementReferenceException:
         scrapAssign(assignLi, basePath, index)
+    
+    return currentSize
 
 def writeFile(filename: str, content: bytes):
     fout = open(filename, 'wb')
@@ -199,7 +241,10 @@ def checkFilename(filename: str) -> str:
         return None
 
 def removePunctuation(s: str) -> str:
-    return s.translate(str.maketrans('', '', string.punctuation))
+    punctuation = string.punctuation
+    for c in ['-', '.', '_']:
+        puntuation = punctuation.replace(c, '')
+    return s.translate(str.maketrans('', '', punctuation))
 
 if __name__ == "__main__":
 
@@ -216,6 +261,7 @@ if __name__ == "__main__":
         course = coursebox.find_element_by_tag_name('a')
         scrapCourse(course)
         driver.switch_to.window(currentWindow) #Restore saved tab
+    print(f'[INFO]: Scrapper finished. A total of {convertSize(totalSize)} were scrapped.')
     session.cookies.clear()
     driver.delete_all_cookies()
     driver.quit()
