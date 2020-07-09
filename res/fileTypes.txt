@@ -196,6 +196,7 @@ vcd
 
 # Developer Files
 c
+clp
 class
 cpp
 cs
